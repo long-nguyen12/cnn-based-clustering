@@ -14,37 +14,8 @@ from keras.initializers import VarianceScaling
 from sklearn.cluster import KMeans
 import metrics
 
-def autoencoder(im_size, dims, act='relu', init='glorot_uniform'):
-    n_stacks = len(dims) - 1
-    print('+ n_stacks:', n_stacks)
-     # input
-    img_input = Input(shape=(im_size, im_size, 3), name='input')
-    x = h = img_input
-    kernel = (3, 3)
 
-    # internal layers in encoder
-    for i in range(n_stacks):        
-        h = layers.Conv2D(dims[i], kernel, activation=act, padding='same', name='encoder_%d' % i)(h)
-        h = layers.MaxPooling2D((2, 2), padding='same')(h)    
-    
-    # hidden layer, features are extracted from here
-    i = n_stacks
-    h = layers.MaxPooling2D((3, 3), padding='same')(h)
-    h = layers.Conv2D(dims[i], (1,1), activation=act, padding='same', name='hidden_layer')(h)
-      
-    y = h
-    y = layers.UpSampling2D((3, 3))(y)
-    
-    # internal layers in decoder
-    for i in range(n_stacks-1, -1, -1):        
-        y = layers.UpSampling2D((2, 2))(y)
-        y = layers.Conv2D(dims[i], kernel, activation=act, padding='same', name='decoder_%d' % i)(y)
-
-    y = layers.Conv2D(3, kernel, activation=act, padding='same', name='decoder_output')(y)
-
-    return Model(inputs=x, outputs=y, name='AE'), Model(inputs=x, outputs=h, name='encoder')
-
-def autoencoder1(im_size, filters, act='relu', init='glorot_uniform'):
+def autoencoder(im_size, filters, act='relu', init='glorot_uniform'):
     """
     Convolutional-neural-network-base auto-encoder model, symmetric.
     """
@@ -148,7 +119,7 @@ class ClusteringLayer(Layer):
 class DEC(object):
     def __init__(self,
                  img_size,
-                 dims,
+                 filters,
                  n_clusters=10,
                  alpha=1.0,
                  init='glorot_uniform'):
@@ -159,9 +130,7 @@ class DEC(object):
 
         self.n_clusters = n_clusters
         self.alpha = alpha
-        self.autoencoder, self.encoder = autoencoder(self.img_size,dims=dims,  init=init)
-        self.autoencoder.summary()
-        self.encoder.summary()
+        self.autoencoder, self.encoder = autoencoder(self.img_size,filters=filters,  init=init)
 
         # # prepare DEC model
         # clustering_layer = ClusteringLayer(
@@ -366,15 +335,16 @@ if __name__ == "__main__":
     elif args.dataset == 'stl':
         update_interval = 60
         pretrain_epochs = 300
-        bs = 32
+        bs = 64
     elif args.dataset == 'cifar10':
         update_interval = 30
         pretrain_epochs = 30
         bs = 64
 
     # prepare the DEC model
-    filters = [64, 96, 128, 192, 128, 64]
-    dec = DEC(img_size=args.img_size, dims=filters,
+    filters = [64, 96, 128, 192, 128, 32]
+    dec = DEC(img_size=args.img_size,
+              filters=filters,
               n_clusters=num_clusters, init=init)
 
     path_save = "results/" + args.dataset + "/dec"
@@ -382,8 +352,6 @@ if __name__ == "__main__":
 
     if args.ae_weights is None:
         # dec.autoencoder.load_weights(path_save + '/ae_weights.h5')
-        pretrain_optimizer = SGD(0.01, 0.9)
-        pretrain_optimizer = 'adam'
         dec.pretrain(x=x, y=y, optimizer=pretrain_optimizer, epochs=pretrain_epochs, batch_size=bs, save_dir=path_save)
     else:
         dec.autoencoder.load_weights(path_save + '/ae_weights.h5')

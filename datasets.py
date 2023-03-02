@@ -285,47 +285,143 @@ def load_cifar10(data_path='./data/cifar10'):
     return features, y
 
 
-def load_stl(data_path='./data/stl'):
-    import os
-    # if features are ready, return them
-    if os.path.exists(data_path + '/stl_features.npy') and os.path.exists(data_path + '/stl_labels.npy'):
-        return np.load(data_path + '/stl_features.npy'), np.load(data_path + '/stl_labels.npy')
+def generate_stl(data_path='./data/stl'):
+    import os, sys, tarfile, errno
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    import urllib.request
+    from imageio import imsave
+    from tqdm import tqdm
+    import random
+    import shutil
+
+    h = 96
+    w = 96
+    c = 3
+
+    size = h * w * c
+
+    dataset_dir = './data/stl/images'
+    if not os.path.exists(dataset_dir):
+        os.makedirs(dataset_dir)
+
+    train_data_path = './data/stl/train_X.bin'
+    train_label_path = './data/stl/train_y.bin'
+
+    test_data_path = './data/stl/test_X.bin'
+    test_label_path = './data/stl/test_y.bin'
+
+    unlabeled_data_path = './data/stl/unlabeled_X.bin'
+
+    def read_labels(path_to_labels):
+        with open(path_to_labels, 'rb') as f:
+            labels = np.fromfile(f, dtype=np.uint8)
+            return labels
     
-    # get labels
-    y1 = np.fromfile(data_path + '/train_y.bin', dtype=np.uint8) - 1
-    y2 = np.fromfile(data_path + '/test_y.bin', dtype=np.uint8) - 1
-    y = np.concatenate((y1, y2))
+    def read_all_images(path_to_data):
+        with open(path_to_data, 'rb') as f:
+            everything = np.fromfile(f, dtype=np.uint8)
 
-    # if features are ready, return them
-    # if os.path.exists(data_path + '/stl_features.npy'):
-    #     return np.load(data_path + '/stl_features.npy'), y
+            images = np.reshape(everything, (-1, 3, 96, 96))
+            images = np.transpose(images, (0, 3, 2, 1))
+            return images
+    
+    def save_image(image, name):
+        imsave("%s.png" % name, image, format="png")
+    
+    def save_images(images, labels, types):
+        i = 0
+        for image in tqdm(images, position=0):
+            label = labels[i] 
+            directory = dataset_dir + '/' + types + '/' + str(label) + '/'
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except OSError as exc:
+                if exc.errno == errno.EEXIST:
+                    pass
+            filename = directory + str(i)
+            #print(filename)
+            save_image(image, filename)
+            i = i+1
 
-    # get data
-    x1 = np.fromfile(data_path + '/train_X.bin', dtype=np.uint8)
-    x1 = x1.reshape((int(x1.size/3/96/96), 3, 96, 96)).transpose((0, 3, 2, 1))
-    x2 = np.fromfile(data_path + '/test_X.bin', dtype=np.uint8)
-    x2 = x2.reshape((int(x2.size/3/96/96), 3, 96, 96)).transpose((0, 3, 2, 1))
-    x = np.concatenate((x1, x2)).astype(float)
+    def save_unlabelled_images(images):
+        i = 0
+        for image in tqdm(images, position=0):
+            directory = dataset_dir + '/' + 'unlabelled' + '/'
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except OSError as exc:
+                if exc.errno == errno.EEXIST:
+                    pass
+            filename = directory + str(i)
+            save_image(image, filename)
+            i = i+1 
+    
+    def create_val_dataset():
+        train_image_path = dataset_dir + "train"
+        folders = os.listdir(train_image_path)
 
-    x = x[:10000]
-    y = y[:10000]
-    print(y.size, "featuresfeaturesfeaturesfeaturesfeatures")
-    # extract features
-    features = extract_vgg16_features(x)
+        for folder in tqdm(folders, position=0):
+            temp_dir = dataset_dir +"/train/" + folder
+            temp_image_list = os.listdir(temp_dir)
 
-    # scale to [0,1]
-    from sklearn.preprocessing import MinMaxScaler
-    features = MinMaxScaler().fit_transform(features)
+        for i in range(50):
+            val_dir = dataset_dir + "/val/" + folder
+            try:
+                os.makedirs(val_dir, exist_ok=True)
+            except OSError as exc:
 
-    # save features
-    np.save(data_path + '/stl_features.npy', features)
-    print('+++ features saved to ' + data_path + '/stl_features.npy')
+                if exc.errno == errno.EEXIST:
+                    pass
+            image_name = random.choice(temp_image_list)
+            temp_image_list.remove(image_name)
+            old_name = temp_dir + '/' + image_name
+            new_name = val_dir + '/' + image_name
+            os.replace(old_name, new_name)
+    
+    train_labels = read_labels(train_label_path)
+    train_images = read_all_images(train_data_path)
 
-    np.save(data_path + '/stl_labels.npy', y)
-    print('+++ labels saved to ' + data_path + '/stl_labels.npy')
+    test_labels = read_labels(test_label_path)
+    test_images = read_all_images(test_data_path)
 
-    return features, y
+    unlabelled_images = read_all_images(unlabeled_data_path)
 
+    save_images(train_images, train_labels, "train")
+    save_images(test_images, test_labels, "test")
+    save_unlabelled_images(unlabelled_images)
+
+
+def load_stl():
+    from tensorflow import keras
+    import numpy as np
+    from keras.preprocessing.image import ImageDataGenerator
+
+    # testAug = ImageDataGenerator(rescale = 1./255)
+    # train_ds = testAug.flow_from_directory(
+	# 	'./data/stl/images/train/',
+	# 	class_mode='categorical',
+	# 	target_size=(96, 96),
+	# 	color_mode="rgb",
+	# 	shuffle=False,
+	# 	batch_size=32)
+
+    train_ds = keras.utils.image_dataset_from_directory(
+        directory='./data/stl/images/train/',
+        labels='inferred',
+        batch_size=16,
+        image_size=(96, 96),
+        shuffle=True,
+        seed=None,
+        validation_split=None,
+    ) 
+
+    x = np.concatenate([np.divide(x, 255.0) for x,y in train_ds])
+    y = np.concatenate([y for x, y in train_ds], axis=0)
+    print(np.unique(y))
+
+    return x, y
 
 def load_data(dataset_name):
     if dataset_name == 'mnist':
@@ -345,3 +441,6 @@ def load_data(dataset_name):
     else:
         print('Not defined for loading', dataset_name)
         exit(0)
+
+if __name__ == '__main__':
+    load_stl()
